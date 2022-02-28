@@ -1,5 +1,8 @@
 # netns-rs
 
+[![static](https://github.com/openanolis/netns-rs/actions/workflows/check.yaml/badge.svg)](https://github.com/openanolis/netns-rs/actions/workflows/check.yaml)
+[![UT](https://github.com/openanolis/netns-rs/actions/workflows/test.yaml/badge.svg)](https://github.com/openanolis/netns-rs/actions/workflows/test.yaml)
+
 The netns-rs crate provides an ultra-simple interface for handling
 network namespaces in Rust. Changing namespaces requires elevated
 privileges, so in most cases this code needs to be run as root.
