@@ -2,6 +2,7 @@
 
 [![static](https://github.com/openanolis/netns-rs/actions/workflows/check.yaml/badge.svg)](https://github.com/openanolis/netns-rs/actions/workflows/check.yaml)
 [![UT](https://github.com/openanolis/netns-rs/actions/workflows/test.yaml/badge.svg)](https://github.com/openanolis/netns-rs/actions/workflows/test.yaml)
+[![codecov](https://codecov.io/gh/openanolis/netns-rs/branch/main/graph/badge.svg?token=KVDCQ8ZRUS)](https://codecov.io/gh/openanolis/netns-rs)
 
 The netns-rs crate provides an ultra-simple interface for handling
 network namespaces in Rust. Changing namespaces requires elevated
