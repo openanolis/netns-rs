@@ -1,0 +1,14 @@
+[package]
+name = "netns-rs"
+version = "0.1.0"
+description = "A library to handle network namespaces in Rust"
+keywords = ["network", "namespaces"]
+authors = ["Alibaba Dragonball Team"]
+repository = "https://github.com/openanolis/netns-rs.git"
+readme = "README.md"
+license = "Apache-2.0"
+edition = "2018"
+
+[dependencies]
+nix = "0.23.1"
+thiserror = "1.0.30"
