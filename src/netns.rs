@@ -103,7 +103,7 @@ pub struct NetNs<E: Env = DefaultEnv> {
 
 impl<E: Env> std::fmt::Display for NetNs<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        if let Ok(meta) = std::fs::metadata(&self.path) {
+        if let Ok(meta) = self.file.metadata() {
             write!(
                 f,
                 "NetNS {{ fd: {}, dev: {}, ino: {}, path: {} }}",
