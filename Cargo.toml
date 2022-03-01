@@ -1,8 +1,8 @@
 [package]
 name = "netns-rs"
 version = "0.1.0"
-description = "A library to handle network namespaces in Rust"
-keywords = ["network", "namespaces"]
+description = "A library to handle Linux network namespaces in Rust"
+keywords = ["network", "namespaces", "linux", "container"]
 authors = ["Alibaba Dragonball Team"]
 repository = "https://github.com/openanolis/netns-rs.git"
 readme = "README.md"

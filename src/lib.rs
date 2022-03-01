@@ -1,4 +1,4 @@
-// Copyright (c) 2022 Alibaba Cloud
+// Copyright 2022 Alibaba Cloud. All Rights Reserved.
 //
 // SPDX-License-Identifier: Apache-2.0
 //
