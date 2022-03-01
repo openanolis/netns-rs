@@ -1,4 +1,4 @@
-// Copyright (c) 2022 Alibaba Cloud
+// Copyright 2022 Alibaba Cloud. All Rights Reserved.
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -18,7 +18,7 @@ use crate::{Error, Result};
 
 /// Defines a NetNs environment behavior.
 pub trait Env {
-    /// The persist dir of the NetNs environment.
+    /// The persist directory of the NetNs environment.
     fn persist_dir(&self) -> PathBuf;
 
     /// Returns `true` if the given path is in this Env.
@@ -28,7 +28,7 @@ pub trait Env {
 
     /// Initialize the environment.
     fn init(&self) -> Result<()> {
-        // Create the directory for mounting network namespaces
+        // Create the directory for mounting network namespaces.
         // This needs to be a shared mountpoint in case it is mounted in to
         // other namespaces (containers)
         let persist_dir = self.persist_dir();
@@ -78,8 +78,9 @@ pub trait Env {
     }
 }
 
-/// A default network namespace environment. Its persistence directory is `/var/run/netns`,
-/// which is for consistency with the `ip-netns` tool.
+/// A default network namespace environment.
+///
+/// Its persistence directory is `/var/run/netns`, which is for consistency with the `ip-netns` tool.
 /// See [ip-netns](https://man7.org/linux/man-pages/man8/ip-netns.8.html) for details.
 #[derive(Copy, Clone, Default, Debug)]
 pub struct DefaultEnv;
@@ -153,6 +154,7 @@ impl<E: Env> Drop for NetNs<E> {
 
 impl<E: Env> NetNs<E> {
     /// Creates a new `NetNs` with the specified name and Env.
+    ///
     /// The persist dir of network namespace will be created if it doesn't already exist.
     pub fn new_with_env<S: AsRef<str>>(ns_name: S, env: E) -> Result<Self> {
         env.init()?;
@@ -161,9 +163,8 @@ impl<E: Env> NetNs<E> {
         let ns_path = env.persist_dir().join(ns_name.as_ref());
         let _ = File::create(&ns_path).map_err(Error::CreateNsError)?;
         Self::persistent(&ns_path, true).map_err(|e| {
-            // Ensure the mount point is cleaned up on errors; if the namespace
-            // was successfully mounted this will have no effect because the file
-            // is in-use
+            // Ensure the mount point is cleaned up on errors; if the namespace was successfully
+            // mounted this will have no effect because the file is in-use
             std::fs::remove_file(&ns_path).ok();
             e
         })?;
@@ -186,11 +187,10 @@ impl<E: Env> NetNs<E> {
                 }
             };
         } else {
-            // Create a new netns on the current thread.
+            // Create a new netns for the current thread.
             unshare(CloneFlags::CLONE_NEWNET).map_err(Error::UnshareError)?;
-            // bind mount the netns from the current thread (from /proc) onto the
-            // mount point. This causes the namespace to persist, even when there
-            // are no threads in the ns.
+            // bind mount the netns from the current thread (from /proc) onto the mount point.
+            // This persists the namespace, even when there are no threads in the ns.
             let src = get_current_thread_netns_path();
             mount(
                 Some(src.as_path()),
@@ -201,11 +201,12 @@ impl<E: Env> NetNs<E> {
             )
             .map_err(|e| {
                 Error::MountError(
-                    format!("-rbind {} to {}", src.display(), ns_path.as_ref().display()),
+                    format!("rbind {} to {}", src.display(), ns_path.as_ref().display()),
                     e,
                 )
             })?;
         }
+
         Ok(())
     }
 
@@ -297,8 +298,8 @@ impl NetNs {
     /// Creates a new persistent (bind-mounted) network namespace and returns an object representing
     /// that namespace, without switching to it.
     ///
-    /// The persist dir of network namespace will be created if it doesn't already exist. This function
-    /// will use [`DefaultEnv`] to create persist dir.
+    /// The persist directory of network namespace will be created if it doesn't already exist.
+    /// This function will use [`DefaultEnv`] to create persist directory.
     ///
     /// Requires elevated privileges.
     ///
@@ -331,6 +332,7 @@ impl NetNs {
 pub fn get_from_path<P: AsRef<Path>>(ns_path: P) -> Result<NetNs> {
     let ns_path = ns_path.as_ref().to_path_buf();
     let file = File::open(&ns_path).map_err(|e| Error::OpenNsError(ns_path.clone(), e))?;
+
     Ok(NetNs {
         file: ManuallyDrop::new(file),
         path: ns_path,
@@ -343,6 +345,7 @@ pub fn get_from_path<P: AsRef<Path>>(ns_path: P) -> Result<NetNs> {
 pub fn get_from_current_thread() -> Result<NetNs> {
     let ns_path = get_current_thread_netns_path();
     let file = File::open(&ns_path).map_err(|e| Error::OpenNsError(ns_path.clone(), e))?;
+
     Ok(NetNs {
         file: ManuallyDrop::new(file),
         path: ns_path,
