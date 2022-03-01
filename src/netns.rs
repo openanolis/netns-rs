@@ -4,6 +4,7 @@
 //
 
 use std::fs::File;
+use std::mem::ManuallyDrop;
 use std::os::unix::fs::MetadataExt;
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
@@ -89,12 +90,15 @@ impl Env for DefaultEnv {
     }
 }
 
-/// A network namespace type. We can use the instance to enter network namespace.
+/// A network namespace type.
+///
+/// It could be used to enter network namespace.
 #[derive(Debug)]
 pub struct NetNs<E: Env = DefaultEnv> {
-    file: File,
+    file: ManuallyDrop<File>,
     path: PathBuf,
     env: Option<E>,
+    file_dropped: bool,
 }
 
 impl<E: Env> std::fmt::Display for NetNs<E> {
@@ -136,6 +140,14 @@ impl<E1: Env, E2: Env> PartialEq<NetNs<E1>> for NetNs<E2> {
             Some(m1.dev() == m2.dev() && m1.ino() == m2.ino())
         };
         cmp_meta(&self.file, &other.file).unwrap_or_else(|| self.path == other.path)
+    }
+}
+
+impl<E: Env> Drop for NetNs<E> {
+    fn drop(&mut self) {
+        if !self.file_dropped {
+            unsafe { ManuallyDrop::drop(&mut self.file) };
+        }
     }
 }
 
@@ -223,34 +235,22 @@ impl<E: Env> NetNs<E> {
     pub fn get_from_env<S: AsRef<str>>(ns_name: S, env: E) -> Result<Self> {
         let ns_path = env.persist_dir().join(ns_name.as_ref());
         let file = File::open(&ns_path).map_err(|e| Error::OpenNsError(ns_path.clone(), e))?;
+
         Ok(Self {
-            file,
+            file: ManuallyDrop::new(file),
             path: ns_path,
             env: Some(env),
+            file_dropped: false,
         })
     }
 
-    /// Removes this network namespace by manually. Once called, this instance will not be available.
-    /// Due to we want to return Result, so the function is not implemented inside `Drop`, the user
-    /// can choose to add this function inside `Drop` of your struct.
+    /// Removes this network namespace manually.
     ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use netns_rs::NetNs;
-    ///
-    /// struct Foo {
-    ///     netns: NetNs,
-    /// }
-    /// impl Drop for Foo {
-    ///     fn drop(&mut self) {
-    ///         self.netns.umount().unwrap();
-    ///     }
-    /// }
-    /// ```
+    /// Once called, this instance will not be available.
     pub fn umount(&mut self) -> Result<()> {
         // need close first
         nix::unistd::close(self.file.as_raw_fd()).map_err(Error::CloseNsError)?;
+        self.file_dropped = true;
         self.umount_ns()
     }
 
@@ -332,9 +332,10 @@ pub fn get_from_path<P: AsRef<Path>>(ns_path: P) -> Result<NetNs> {
     let ns_path = ns_path.as_ref().to_path_buf();
     let file = File::open(&ns_path).map_err(|e| Error::OpenNsError(ns_path.clone(), e))?;
     Ok(NetNs {
-        file,
+        file: ManuallyDrop::new(file),
         path: ns_path,
         env: None,
+        file_dropped: false,
     })
 }
 
@@ -343,9 +344,10 @@ pub fn get_from_current_thread() -> Result<NetNs> {
     let ns_path = get_current_thread_netns_path();
     let file = File::open(&ns_path).map_err(|e| Error::OpenNsError(ns_path.clone(), e))?;
     Ok(NetNs {
-        file,
+        file: ManuallyDrop::new(file),
         path: ns_path,
         env: None,
+        file_dropped: false,
     })
 }
 
@@ -367,9 +369,10 @@ mod tests {
         assert!(print.contains("ino"));
 
         let ns: NetNs<DefaultEnv> = NetNs {
-            file: unsafe { File::from_raw_fd(i32::MAX) },
+            file: ManuallyDrop::new(unsafe { File::from_raw_fd(i32::MAX) }),
             path: PathBuf::from(""),
             env: None,
+            file_dropped: true,
         };
         let print = format!("{}", ns);
         assert!(!print.contains("dev"));
@@ -383,21 +386,24 @@ mod tests {
         assert_eq!(ns1, ns2);
 
         let ns1: NetNs<DefaultEnv> = NetNs {
-            file: unsafe { File::from_raw_fd(i32::MAX) },
+            file: ManuallyDrop::new(unsafe { File::from_raw_fd(i32::MAX) }),
             path: PathBuf::from("aaaaaa"),
             env: None,
+            file_dropped: true,
         };
         let ns2: NetNs<DefaultEnv> = NetNs {
-            file: unsafe { File::from_raw_fd(i32::MAX) },
+            file: ManuallyDrop::new(unsafe { File::from_raw_fd(i32::MAX) }),
             path: PathBuf::from("bbbbbb"),
             env: None,
+            file_dropped: true,
         };
         assert_eq!(ns1, ns2);
 
         let ns2: NetNs<DefaultEnv> = NetNs {
-            file: unsafe { File::from_raw_fd(i32::MAX - 1) },
+            file: ManuallyDrop::new(unsafe { File::from_raw_fd(i32::MAX - 1) }),
             path: PathBuf::from("aaaaaa"),
             env: None,
+            file_dropped: true,
         };
         assert_eq!(ns1, ns2);
     }
