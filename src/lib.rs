@@ -60,9 +60,6 @@ pub enum Error {
     #[error("Failed to close netns,{0}")]
     CloseNsError(nix::Error),
 
-    #[error("Can not remove netns {0}, {1}")]
-    RemoveNsError(std::path::PathBuf, std::io::Error),
-
     #[error("Failed to mount {0}, {1}")]
     MountError(String, nix::Error),
 
