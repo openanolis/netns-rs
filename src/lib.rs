@@ -23,7 +23,7 @@
 //!}).unwrap();
 //!
 //!// removes netns.
-//!ns.umount().unwrap();
+//!ns.remove().unwrap();
 //!```
 //! To get a Netns that already exists, you can use the [`NetNs::get`] series of functions.
 //!```no_run

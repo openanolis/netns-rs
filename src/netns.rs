@@ -4,9 +4,8 @@
 //
 
 use std::fs::File;
-use std::mem::ManuallyDrop;
 use std::os::unix::fs::MetadataExt;
-use std::os::unix::io::AsRawFd;
+use std::os::unix::io::{AsRawFd, IntoRawFd};
 use std::path::{Path, PathBuf};
 use std::thread::{self, JoinHandle};
 
@@ -96,10 +95,9 @@ impl Env for DefaultEnv {
 /// It could be used to enter network namespace.
 #[derive(Debug)]
 pub struct NetNs<E: Env = DefaultEnv> {
-    file: ManuallyDrop<File>,
+    file: File,
     path: PathBuf,
     env: Option<E>,
-    file_dropped: bool,
 }
 
 impl<E: Env> std::fmt::Display for NetNs<E> {
@@ -141,14 +139,6 @@ impl<E1: Env, E2: Env> PartialEq<NetNs<E1>> for NetNs<E2> {
             Some(m1.dev() == m2.dev() && m1.ino() == m2.ino())
         };
         cmp_meta(&self.file, &other.file).unwrap_or_else(|| self.path == other.path)
-    }
-}
-
-impl<E: Env> Drop for NetNs<E> {
-    fn drop(&mut self) {
-        if !self.file_dropped {
-            unsafe { ManuallyDrop::drop(&mut self.file) };
-        }
     }
 }
 
@@ -238,34 +228,32 @@ impl<E: Env> NetNs<E> {
         let file = File::open(&ns_path).map_err(|e| Error::OpenNsError(ns_path.clone(), e))?;
 
         Ok(Self {
-            file: ManuallyDrop::new(file),
+            file,
             path: ns_path,
             env: Some(env),
-            file_dropped: false,
         })
     }
 
     /// Removes this network namespace manually.
     ///
     /// Once called, this instance will not be available.
-    pub fn umount(&mut self) -> Result<()> {
+    pub fn remove(self) -> Result<()> {
         // need close first
-        nix::unistd::close(self.file.as_raw_fd()).map_err(Error::CloseNsError)?;
-        self.file_dropped = true;
-        self.umount_ns()
-    }
-
-    fn umount_ns(&mut self) -> Result<()> {
+        nix::unistd::close(self.file.into_raw_fd()).map_err(Error::CloseNsError)?;
         // Only unmount if it's been bind-mounted (don't touch namespaces in /proc...)
         if let Some(env) = &self.env {
             if env.contains(&self.path) {
-                umount2(&self.path, MntFlags::MNT_DETACH)
-                    .map_err(|e| Error::UnmountError(self.path.clone(), e))?;
-                std::fs::remove_file(&self.path)
-                    .map_err(|e| Error::RemoveNsError(self.path.clone(), e))
-                    .ok();
+                Self::umount_ns(&self.path)?;
             }
         }
+        Ok(())
+    }
+
+    fn umount_ns<P: AsRef<Path>>(path: P) -> Result<()> {
+        let path = path.as_ref();
+        umount2(path, MntFlags::MNT_DETACH).map_err(|e| Error::UnmountError(path.to_owned(), e))?;
+        // Donot return error.
+        std::fs::remove_file(path).ok();
         Ok(())
     }
 
@@ -334,10 +322,9 @@ pub fn get_from_path<P: AsRef<Path>>(ns_path: P) -> Result<NetNs> {
     let file = File::open(&ns_path).map_err(|e| Error::OpenNsError(ns_path.clone(), e))?;
 
     Ok(NetNs {
-        file: ManuallyDrop::new(file),
+        file,
         path: ns_path,
         env: None,
-        file_dropped: false,
     })
 }
 
@@ -347,10 +334,9 @@ pub fn get_from_current_thread() -> Result<NetNs> {
     let file = File::open(&ns_path).map_err(|e| Error::OpenNsError(ns_path.clone(), e))?;
 
     Ok(NetNs {
-        file: ManuallyDrop::new(file),
+        file,
         path: ns_path,
         env: None,
-        file_dropped: false,
     })
 }
 
@@ -372,10 +358,9 @@ mod tests {
         assert!(print.contains("ino"));
 
         let ns: NetNs<DefaultEnv> = NetNs {
-            file: ManuallyDrop::new(unsafe { File::from_raw_fd(i32::MAX) }),
+            file: unsafe { File::from_raw_fd(i32::MAX) },
             path: PathBuf::from(""),
             env: None,
-            file_dropped: true,
         };
         let print = format!("{}", ns);
         assert!(!print.contains("dev"));
@@ -389,40 +374,37 @@ mod tests {
         assert_eq!(ns1, ns2);
 
         let ns1: NetNs<DefaultEnv> = NetNs {
-            file: ManuallyDrop::new(unsafe { File::from_raw_fd(i32::MAX) }),
+            file: unsafe { File::from_raw_fd(i32::MAX) },
             path: PathBuf::from("aaaaaa"),
             env: None,
-            file_dropped: true,
         };
         let ns2: NetNs<DefaultEnv> = NetNs {
-            file: ManuallyDrop::new(unsafe { File::from_raw_fd(i32::MAX) }),
+            file: unsafe { File::from_raw_fd(i32::MAX) },
             path: PathBuf::from("bbbbbb"),
             env: None,
-            file_dropped: true,
         };
         assert_eq!(ns1, ns2);
 
         let ns2: NetNs<DefaultEnv> = NetNs {
-            file: ManuallyDrop::new(unsafe { File::from_raw_fd(i32::MAX - 1) }),
+            file: unsafe { File::from_raw_fd(i32::MAX - 1) },
             path: PathBuf::from("aaaaaa"),
             env: None,
-            file_dropped: true,
         };
         assert_eq!(ns1, ns2);
     }
 
     #[test]
     fn test_netns_init() {
-        let mut ns = NetNs::new("test_netns_init").unwrap();
+        let ns = NetNs::new("test_netns_init").unwrap();
         assert!(ns.path().exists());
-        ns.umount().unwrap();
+        ns.remove().unwrap();
         assert!(!Path::new(&DefaultEnv.persist_dir())
             .join("test_netns_init")
             .exists());
     }
 
     struct TestNetNs {
-        netns: NetNs,
+        netns: Option<NetNs>,
         ns_name: String,
     }
 
@@ -431,16 +413,20 @@ mod tests {
             let netns = NetNs::new(name).unwrap();
             assert!(netns.path().exists());
             Self {
-                netns,
+                netns: Some(netns),
                 ns_name: String::from(name),
             }
+        }
+
+        fn netns(&self) -> &NetNs {
+            self.netns.as_ref().unwrap()
         }
     }
 
     impl Drop for TestNetNs {
         fn drop(&mut self) {
             let ns_name = self.ns_name.clone();
-            self.netns.umount().unwrap();
+            self.netns.take().unwrap().remove().unwrap();
             assert!(!Path::new(&DefaultEnv.persist_dir()).join(ns_name).exists());
         }
     }
@@ -450,15 +436,15 @@ mod tests {
         let new = TestNetNs::new("test_netns_enter");
 
         let src = get_from_current_thread().unwrap();
-        assert_ne!(src, new.netns);
+        assert_ne!(&src, new.netns());
 
-        new.netns.enter().unwrap();
+        new.netns().enter().unwrap();
 
         let cur = get_from_current_thread().unwrap();
 
-        assert_eq!(new.netns, cur);
+        assert_eq!(new.netns(), &cur);
         assert_ne!(src, cur);
-        assert_ne!(src, new.netns);
+        assert_ne!(&src, new.netns());
     }
 
     struct TestEnv;
@@ -473,10 +459,10 @@ mod tests {
         let ns_res = NetNs::get_from_env("test_netns_run", TestEnv);
         assert!(matches!(ns_res, Err(Error::OpenNsError(_, _))));
 
-        let mut ns = NetNs::new_with_env("test_netns_run", TestEnv).unwrap();
+        let ns = NetNs::new_with_env("test_netns_run", TestEnv).unwrap();
         assert!(ns.path().exists());
 
-        ns.umount().unwrap();
+        ns.remove().unwrap();
         assert!(!Path::new(&TestEnv.persist_dir())
             .join("test_netns_set")
             .exists());
@@ -489,12 +475,12 @@ mod tests {
         let src_ns = get_from_current_thread().unwrap();
 
         let ret = new
-            .netns
+            .netns()
             .run(|cur_ns| -> Result<()> {
                 let cur_thread = get_from_current_thread().unwrap();
                 assert_eq!(cur_ns, &cur_thread);
                 // captured variables
-                assert_eq!(cur_ns, &new.netns);
+                assert_eq!(cur_ns, new.netns());
                 assert_ne!(cur_ns, &src_ns);
 
                 Ok(())
